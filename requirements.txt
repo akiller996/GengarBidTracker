@@ -2,3 +2,5 @@ aiogram
 requests
 ebaysdk
 beautifulsoup4
+flask
+gunicorn
