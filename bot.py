@@ -5,7 +5,7 @@ import threading
 import time
 from bs4 import BeautifulSoup
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext
 
 # Configurazione logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +22,10 @@ CARDMARKET_URL = os.getenv("CARDMARKET_URL")
 notifiche_utente = {}
 
 # Funzione per cercare carte su eBay
-def cerca_carte(update: Update, context: CallbackContext):
+async def cerca_carte(update: Update, context: CallbackContext):
     query = " ".join(context.args)
     if not query:
-        update.message.reply_text("Devi inserire il nome della carta da cercare!")
+        await update.message.reply_text("Devi inserire il nome della carta da cercare!")
         return
 
     url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=1"
@@ -34,18 +34,18 @@ def cerca_carte(update: Update, context: CallbackContext):
     try:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            update.message.reply_text(f"Risultati per '{query}': {url}")
+            await update.message.reply_text(f"Risultati per '{query}': {url}")
         else:
-            update.message.reply_text("Errore nella ricerca su eBay.")
+            await update.message.reply_text("Errore nella ricerca su eBay.")
     except Exception as e:
-        update.message.reply_text("Errore nella richiesta.")
+        await update.message.reply_text("Errore nella richiesta.")
         logger.error(f"Errore: {e}")
 
 # Funzione per confrontare prezzi con PriceCharting
-def confronta_pricecharting(update: Update, context: CallbackContext):
+async def confronta_pricecharting(update: Update, context: CallbackContext):
     query = " ".join(context.args)
     if not query:
-        update.message.reply_text("Devi inserire il nome della carta!")
+        await update.message.reply_text("Devi inserire il nome della carta!")
         return
 
     url = f"{PRICECHARTING_URL}?q={query.replace(' ', '+')}"
@@ -56,16 +56,16 @@ def confronta_pricecharting(update: Update, context: CallbackContext):
         soup = BeautifulSoup(response.text, "html.parser")
         prezzo_medio = soup.find("span", class_="price").text
 
-        update.message.reply_text(f"Prezzo medio su PriceCharting: {prezzo_medio}")
+        await update.message.reply_text(f"Prezzo medio su PriceCharting: {prezzo_medio}")
     except Exception as e:
-        update.message.reply_text("Errore nel confronto prezzi.")
+        await update.message.reply_text("Errore nel confronto prezzi.")
         logger.error(f"Errore: {e}")
 
 # Funzione per confrontare prezzi con Cardmarket
-def confronta_cardmarket(update: Update, context: CallbackContext):
+async def confronta_cardmarket(update: Update, context: CallbackContext):
     query = " ".join(context.args)
     if not query:
-        update.message.reply_text("Devi inserire il nome della carta!")
+        await update.message.reply_text("Devi inserire il nome della carta!")
         return
 
     url = f"{CARDMARKET_URL}?searchString={query.replace(' ', '+')}"
@@ -76,28 +76,28 @@ def confronta_cardmarket(update: Update, context: CallbackContext):
         soup = BeautifulSoup(response.text, "html.parser")
         prezzo_medio = soup.find("div", class_="price-container").text.strip()
 
-        update.message.reply_text(f"Prezzo medio su Cardmarket: {prezzo_medio}")
+        await update.message.reply_text(f"Prezzo medio su Cardmarket: {prezzo_medio}")
     except Exception as e:
-        update.message.reply_text("Errore nel confronto prezzi.")
+        await update.message.reply_text("Errore nel confronto prezzi.")
         logger.error(f"Errore: {e}")
 
 # Funzione per attivare notifiche su nuove inserzioni
-def attiva_notifiche(update: Update, context: CallbackContext):
+async def attiva_notifiche(update: Update, context: CallbackContext):
     query = " ".join(context.args)
     user_id = update.message.chat_id
 
     if not query:
-        update.message.reply_text("Devi inserire il nome della carta!")
+        await update.message.reply_text("Devi inserire il nome della carta!")
         return
 
     if user_id not in notifiche_utente:
         notifiche_utente[user_id] = []
 
     notifiche_utente[user_id].append(query)
-    update.message.reply_text(f"Notifiche attivate per '{query}'.")
+    await update.message.reply_text(f"Notifiche attivate per '{query}'.")
 
 # Controllo nuove inserzioni su eBay
-def controlla_nuove_inserzioni():
+def controlla_nuove_inserzioni(application):
     while True:
         for user_id, queries in notifiche_utente.items():
             for query in queries:
@@ -111,7 +111,7 @@ def controlla_nuove_inserzioni():
 
                     if primo_risultato:
                         link = primo_risultato["href"]
-                        context.bot.send_message(user_id, f"Nuova inserzione trovata per '{query}': {link}")
+                        application.bot.send_message(user_id, f"Nuova inserzione trovata per '{query}': {link}")
 
                 except Exception as e:
                     logger.error(f"Errore nel controllo nuove inserzioni: {e}")
@@ -120,19 +120,20 @@ def controlla_nuove_inserzioni():
 
 # Avvia il bot
 def main():
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Creiamo l'applicazione
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    dp.add_handler(CommandHandler("cerca", cerca_carte))
-    dp.add_handler(CommandHandler("pricecharting", confronta_pricecharting))
-    dp.add_handler(CommandHandler("cardmarket", confronta_cardmarket))
-    dp.add_handler(CommandHandler("notifiche", attiva_notifiche))
+    # Aggiungiamo i comandi al dispatcher
+    application.add_handler(CommandHandler("cerca", cerca_carte))
+    application.add_handler(CommandHandler("pricecharting", confronta_pricecharting))
+    application.add_handler(CommandHandler("cardmarket", confronta_cardmarket))
+    application.add_handler(CommandHandler("notifiche", attiva_notifiche))
 
     # Avvia il controllo delle nuove inserzioni in un thread separato
-    threading.Thread(target=controlla_nuove_inserzioni, daemon=True).start()
+    threading.Thread(target=controlla_nuove_inserzioni, args=(application,), daemon=True).start()
 
-    updater.start_polling()
-    updater.idle()  # Mantiene il bot attivo in modo corretto
+    # Avvia il bot nel thread principale
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
