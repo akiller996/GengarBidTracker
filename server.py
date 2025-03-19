@@ -1,13 +1,14 @@
 from flask import Flask
 import threading
-import bot
+import bot  # Importa il bot per mantenerlo attivo
 
 app = Flask(__name__)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "Il bot è attivo!"
+    return "GengarBidTracker è attivo!"
 
+# Avvia il bot in un thread separato
 def run_bot():
     bot.main()
 
