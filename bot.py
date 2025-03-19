@@ -1,110 +1,138 @@
-from flask import Flask, request, jsonify
-from threading import Thread
 import os
 import requests
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
-from ebaysdk.finding import Connection as Finding
+import logging
+import threading
+import time
 from bs4 import BeautifulSoup
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
-# 🔑 Variabili d'ambiente (Render le leggerà in automatico)
-TOKEN = os.getenv("BOT_TOKEN")
-EBAY_APP_ID = os.getenv("EBAY_APP_ID")
-USER_AGENT = os.getenv("USER_AGENT")
-VERIFICATION_TOKEN = os.getenv("EBAY_VERIFICATION_TOKEN", "TOKEN_NON_IMPOSTATO")
+# Configurazione logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# 📌 Avvio Flask per eBay Notifications
-app = Flask(__name__)
+# Token del bot Telegram
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+EBAY_AFFILIATE_LINK = os.getenv("EBAY_AFFILIATE_LINK")
+MYUSERAGENT = os.getenv("MYUSERAGENT")
+PRICECHARTING_URL = os.getenv("PRICECHARTING_URL")
+CARDMARKET_URL = os.getenv("CARDMARKET_URL")
 
-@app.route('/ebay-notification', methods=['POST'])
-def ebay_notification():
-    data = request.json
-    print("🔔 Notifica ricevuta:", data)  # Log della notifica
+# Lista per le notifiche delle nuove inserzioni
+notifiche_utente = {}
 
-    # Se eBay sta cercando di verificare l'endpoint
-    if "challenge" in data:
-        print("🔑 eBay Verification Token ricevuto:", data["challenge"])
-        return jsonify({"challenge": data["challenge"]}), 200
+# Funzione per cercare carte su eBay
+def cerca_carte(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("Devi inserire il nome della carta da cercare!")
+        return
 
-    return jsonify({"status": "success"}), 200  # Rispondi a eBay con 200 OK
-
-# 📌 Funzioni del bot Telegram
-bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
-
-def cerca_carte_ebay(nome_carta):
-    api = Finding(domain="svcs.ebay.com", appid=EBAY_APP_ID, config_file=None)
-    risultati = {"Aste": [], "Compralo Subito": []}
-
-    for tipo in ["Auction", "FixedPrice"]:
-        response = api.execute("findItemsByKeywords", {
-            "keywords": nome_carta,
-            "sortOrder": "PricePlusShippingLowest",
-            "itemFilter": [{"name": "ListingType", "value": tipo}]
-        })
-
-        items = response.dict().get("searchResult", {}).get("item", [])
-        for item in items[:5]:  # Mostriamo solo i primi 5 risultati
-            titolo = item["title"]
-            prezzo = item["sellingStatus"]["currentPrice"]["value"]
-            link = item["viewItemURL"]
-            risultati["Aste" if tipo == "Auction" else "Compralo Subito"].append(f"{titolo} - {prezzo}€\n🔗 {link}")
-
-    return risultati
-
-def prezzo_medio_pricecharting(nome_carta):
-    url = f"https://www.pricecharting.com/search-products?type=prices&q={nome_carta.replace(' ', '+')}"
-    headers = {"User-Agent": USER_AGENT}
-
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+    url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=1"
+    headers = {"User-Agent": MYUSERAGENT}
 
     try:
-        prezzo = soup.find("span", class_="price").text.strip()
-        return f"💰 Prezzo Medio PriceCharting: {prezzo}"
-    except:
-        return "❌ Prezzo non trovato su PriceCharting."
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            update.message.reply_text(f"Risultati per '{query}': {url}")
+        else:
+            update.message.reply_text("Errore nella ricerca su eBay.")
+    except Exception as e:
+        update.message.reply_text("Errore nella richiesta.")
+        logger.error(f"Errore: {e}")
 
-def prezzo_medio_cardmarket(nome_carta):
-    url = f"https://www.cardmarket.com/en/Pokemon/Products/Singles?searchString={nome_carta}"
-    headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-    
+# Funzione per confrontare prezzi con PriceCharting
+def confronta_pricecharting(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("Devi inserire il nome della carta!")
+        return
+
+    url = f"{PRICECHARTING_URL}?q={query.replace(' ', '+')}"
+    headers = {"User-Agent": MYUSERAGENT}
+
     try:
-        prezzo = soup.find("span", class_="price").text.strip()
-        return f"💰 Prezzo Medio Cardmarket: {prezzo}"
-    except:
-        return "❌ Prezzo non trovato su Cardmarket."
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+        prezzo_medio = soup.find("span", class_="price").text
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    await message.reply("Ciao! Dimmi quale carta Pokémon vuoi cercare!")
+        update.message.reply_text(f"Prezzo medio su PriceCharting: {prezzo_medio}")
+    except Exception as e:
+        update.message.reply_text("Errore nel confronto prezzi.")
+        logger.error(f"Errore: {e}")
 
-@dp.message_handler()
-async def cerca_carta(message: types.Message):
-    nome_carta = message.text
+# Funzione per confrontare prezzi con Cardmarket
+def confronta_cardmarket(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("Devi inserire il nome della carta!")
+        return
 
-    risultati_ebay = cerca_carte_ebay(nome_carta)
-    pricecharting = prezzo_medio_pricecharting(nome_carta)
-    cardmarket = prezzo_medio_cardmarket(nome_carta)
+    url = f"{CARDMARKET_URL}?searchString={query.replace(' ', '+')}"
+    headers = {"User-Agent": MYUSERAGENT}
 
-    risposta = f"🔎 **Risultati per {nome_carta}:**\n\n"
-    risposta += f"🛒 **Aste:**\n" + "\n\n".join(risultati_ebay["Aste"]) + "\n\n"
-    risposta += f"⚡ **Compralo Subito:**\n" + "\n\n".join(risultati_ebay["Compralo Subito"]) + "\n\n"
-    risposta += f"{pricecharting}\n\n"
-    risposta += f"{cardmarket}"
+    try:
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+        prezzo_medio = soup.find("div", class_="price-container").text.strip()
 
-    await message.reply(risposta, parse_mode="Markdown")
+        update.message.reply_text(f"Prezzo medio su Cardmarket: {prezzo_medio}")
+    except Exception as e:
+        update.message.reply_text("Errore nel confronto prezzi.")
+        logger.error(f"Errore: {e}")
 
-# 📌 Avvio Flask in un thread separato
-def run_flask():
-    app.run(host='0.0.0.0', port=10000)
+# Funzione per attivare notifiche su nuove inserzioni
+def attiva_notifiche(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    user_id = update.message.chat_id
 
-if __name__ == '__main__':
-    # Avvia Flask in un thread separato
-    flask_thread = Thread(target=run_flask)
-    flask_thread.start()
+    if not query:
+        update.message.reply_text("Devi inserire il nome della carta!")
+        return
 
-    # Avvia il bot Telegram in modalità polling
-    executor.start_polling(dp)
+    if user_id not in notifiche_utente:
+        notifiche_utente[user_id] = []
+
+    notifiche_utente[user_id].append(query)
+    update.message.reply_text(f"Notifiche attivate per '{query}'.")
+
+# Controllo nuove inserzioni su eBay
+def controlla_nuove_inserzioni():
+    while True:
+        for user_id, queries in notifiche_utente.items():
+            for query in queries:
+                url = f"https://www.ebay.com/sch/i.html?_nkw={query.replace(' ', '+')}&_sop=10"
+                headers = {"User-Agent": MYUSERAGENT}
+
+                try:
+                    response = requests.get(url, headers=headers)
+                    soup = BeautifulSoup(response.text, "html.parser")
+                    primo_risultato = soup.find("a", class_="s-item__link")
+
+                    if primo_risultato:
+                        link = primo_risultato["href"]
+                        context.bot.send_message(user_id, f"Nuova inserzione trovata per '{query}': {link}")
+
+                except Exception as e:
+                    logger.error(f"Errore nel controllo nuove inserzioni: {e}")
+
+        time.sleep(300)  # Controlla ogni 5 minuti
+
+# Avvia il bot
+def main():
+    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("cerca", cerca_carte))
+    dp.add_handler(CommandHandler("pricecharting", confronta_pricecharting))
+    dp.add_handler(CommandHandler("cardmarket", confronta_cardmarket))
+    dp.add_handler(CommandHandler("notifiche", attiva_notifiche))
+
+    # Avvia il controllo delle nuove inserzioni in un thread separato
+    threading.Thread(target=controlla_nuove_inserzioni, daemon=True).start()
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
