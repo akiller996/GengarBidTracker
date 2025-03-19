@@ -2,7 +2,6 @@ import os
 import requests
 import logging
 import asyncio
-import time
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
@@ -96,7 +95,7 @@ async def attiva_notifiche(update: Update, context: CallbackContext):
     notifiche_utente[user_id].append(query)
     await update.message.reply_text(f"Notifiche attivate per '{query}'.")
 
-# Controllo nuove inserzioni su eBay (ora async)
+# Controllo nuove inserzioni su eBay (funzione asincrona)
 async def controlla_nuove_inserzioni(application):
     while True:
         for user_id, queries in notifiche_utente.items():
@@ -118,21 +117,19 @@ async def controlla_nuove_inserzioni(application):
 
         await asyncio.sleep(300)  # Controlla ogni 5 minuti
 
-# Funzione principale per avviare il bot
+# Avvia il bot
 async def main():
+    # Creiamo l'applicazione
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Aggiungiamo i comandi al dispatcher
     application.add_handler(CommandHandler("cerca", cerca_carte))
     application.add_handler(CommandHandler("pricecharting", confronta_pricecharting))
     application.add_handler(CommandHandler("cardmarket", confronta_cardmarket))
     application.add_handler(CommandHandler("notifiche", attiva_notifiche))
 
-    # Avvia il task asincrono per controllare le nuove inserzioni
+    # Avvia il controllo delle nuove inserzioni in background
     asyncio.create_task(controlla_nuove_inserzioni(application))
 
-    # Avvia il bot
-    print("Bot avviato...")
+    # Avvia il bot nel thread principale
     await application.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())  # Usa asyncio.run() per gestire il loop event di Telegram
