@@ -1,6 +1,4 @@
-aiogram
+python-telegram-bot==13.7
 requests
-ebaysdk
+Flask
 beautifulsoup4
-flask
-gunicorn
