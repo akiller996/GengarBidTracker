@@ -131,8 +131,9 @@ def main():
     # Avvia il controllo delle nuove inserzioni in un thread separato
     threading.Thread(target=controlla_nuove_inserzioni, daemon=True).start()
 
-    updater.start_polling()
-    updater.idle()
+updater.start_polling()
+while True:
+    time.sleep(10)  # Mantiene il bot attivo senza usare signal()
 
 if __name__ == "__main__":
     main()
