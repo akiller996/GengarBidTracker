@@ -1,7 +1,7 @@
 import os
 import requests
 import logging
-import threading
+import asyncio
 import time
 from bs4 import BeautifulSoup
 from telegram import Update
@@ -96,8 +96,8 @@ async def attiva_notifiche(update: Update, context: CallbackContext):
     notifiche_utente[user_id].append(query)
     await update.message.reply_text(f"Notifiche attivate per '{query}'.")
 
-# Controllo nuove inserzioni su eBay
-def controlla_nuove_inserzioni(application):
+# Controllo nuove inserzioni su eBay (ora async)
+async def controlla_nuove_inserzioni(application):
     while True:
         for user_id, queries in notifiche_utente.items():
             for query in queries:
@@ -111,29 +111,28 @@ def controlla_nuove_inserzioni(application):
 
                     if primo_risultato:
                         link = primo_risultato["href"]
-                        application.bot.send_message(user_id, f"Nuova inserzione trovata per '{query}': {link}")
+                        await application.bot.send_message(user_id, f"Nuova inserzione trovata per '{query}': {link}")
 
                 except Exception as e:
                     logger.error(f"Errore nel controllo nuove inserzioni: {e}")
 
-        time.sleep(300)  # Controlla ogni 5 minuti
+        await asyncio.sleep(300)  # Controlla ogni 5 minuti
 
-# Avvia il bot
-def main():
-    # Creiamo l'applicazione
+# Funzione principale per avviare il bot
+async def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Aggiungiamo i comandi al dispatcher
     application.add_handler(CommandHandler("cerca", cerca_carte))
     application.add_handler(CommandHandler("pricecharting", confronta_pricecharting))
     application.add_handler(CommandHandler("cardmarket", confronta_cardmarket))
     application.add_handler(CommandHandler("notifiche", attiva_notifiche))
 
-    # Avvia il controllo delle nuove inserzioni in un thread separato
-    threading.Thread(target=controlla_nuove_inserzioni, args=(application,), daemon=True).start()
+    # Avvia il task asincrono per controllare le nuove inserzioni
+    asyncio.create_task(controlla_nuove_inserzioni(application))
 
-    # Avvia il bot nel thread principale
-    application.run_polling()
+    # Avvia il bot
+    print("Bot avviato...")
+    await application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())  # Usa asyncio.run() per gestire il loop event di Telegram
