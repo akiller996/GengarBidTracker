@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Token del bot Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-EBAY_AFFILIATE_LINK = os.getenv("EBAY_AFFILIATE_LINK")
+EBAY_AFFILIATE_LINK = os.getenv("EBAY_AFFILIATE_LINK", "")
 MYUSERAGENT = os.getenv("MYUSERAGENT")
 PRICECHARTING_URL = os.getenv("PRICECHARTING_URL")
 CARDMARKET_URL = os.getenv("CARDMARKET_URL")
