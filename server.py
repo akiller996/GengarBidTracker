@@ -1,20 +1,20 @@
 from flask import Flask
-import threading
 import asyncio
-import bot  # Importa il bot per mantenerlo attivo
+from bot import application  # Importa direttamente l'application di Telegram
 
 app = Flask(__name__)
 
-@app.route("/")
+@app.route('/')
 def home():
-    return "GengarBidTracker è attivo!"
-
-# Funzione per avviare il bot in un thread separato
-def run_bot():
-    asyncio.run(bot.main())  # Avvia il bot Telegram senza creare un nuovo loop
-
-# Avvia il bot in un thread separato come daemon
-threading.Thread(target=run_bot, daemon=True).start()
+    return "GengarBidTracker is running!"
 
 if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Avvia il bot e il server Flask in parallelo
+    async def start():
+        await application.run_polling(close_loop=False)
+
+    loop.create_task(start())
     app.run(host="0.0.0.0", port=5000)
