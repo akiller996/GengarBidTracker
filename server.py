@@ -11,9 +11,7 @@ def home():
 
 # Funzione per avviare il bot in un thread separato
 def run_bot():
-    loop = asyncio.new_event_loop()  # Crea un nuovo event loop
-    asyncio.set_event_loop(loop)  # Imposta il nuovo loop nel thread
-    loop.run_until_complete(bot.main())  # Avvia il bot Telegram
+    asyncio.run(bot.main())  # Avvia il bot Telegram senza creare un nuovo loop
 
 # Avvia il bot in un thread separato come daemon
 threading.Thread(target=run_bot, daemon=True).start()
