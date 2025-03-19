@@ -1,13 +1,17 @@
-from flask import Flask, request, jsonify
+from flask import Flask
+import threading
+import bot
 
 app = Flask(__name__)
 
-@app.route('/ebay-notification', methods=['POST'])
-def ebay_notification():
-    data = request.json
-    print("🔔 Notifica ricevuta:", data)  # Log della notifica
+@app.route('/')
+def home():
+    return "Il bot è attivo!"
 
-    return jsonify({"status": "success"}), 200  # Rispondi a eBay con 200 OK
+def run_bot():
+    bot.main()
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+threading.Thread(target=run_bot).start()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
